@@ -25,7 +25,64 @@
     line-height:1.5;
     white-space:pre-wrap;
     font-weight:700;
+    margin-bottom: 36px;
   }
+  #choices{
+    position:relative;
+    display:flex;
+    gap:20px;
+    justify-content:center;
+    align-items:center;
+    opacity:0;
+    pointer-events:none;
+    transition: opacity 0.6s ease;
+    min-height:70px;
+  }
+  #choices.show{ opacity:1; pointer-events:auto; }
+  .choice-btn{
+    font-family:'Courier New', monospace;
+    font-size:clamp(15px,3.2vw,20px);
+    font-weight:700;
+    padding:14px 26px;
+    border-radius:30px;
+    cursor:pointer;
+    border:2px solid #3fa9ff;
+    background:rgba(63,169,255,0.12);
+    color:#eaf6ff;
+  }
+  #yesBtn{
+    background:#3fa9ff;
+    color:#001827;
+    transition: transform 0.25s ease;
+  }
+  #noBtn{
+    position:relative;
+    transition: transform 0.15s ease;
+  }
+  #heartOverlay{
+    position:fixed; inset:0; z-index:5; pointer-events:none;
+  }
+  .heart{
+    position:absolute;
+    font-size:24px;
+    filter: drop-shadow(0 0 6px rgba(255,159,207,0.7));
+    animation: floatUp 3.4s cubic-bezier(0.25,0.46,0.45,0.94) forwards;
+  }
+  @keyframes floatUp{
+    0%{ transform:translate(0,0) rotate(0deg) scale(0.6); opacity:0; }
+    12%{ opacity:1; transform:translate(0,-8vh) rotate(-4deg) scale(1); }
+    50%{ transform:translate(var(--drift,20px),-48vh) rotate(6deg) scale(1.05); }
+    100%{ transform:translate(calc(var(--drift,20px) * -1),-95vh) rotate(-4deg) scale(0.9); opacity:0; }
+  }
+  #finalMsg{
+    position:fixed; top:50%; left:50%; transform:translate(-50%,-50%) scale(0.85);
+    z-index:6; text-align:center; font-family:'Courier New', monospace;
+    color:#eaf6ff; font-size:clamp(22px,5vw,42px); font-weight:800;
+    text-shadow:0 0 10px #ff9ecf, 0 0 25px #ff5fa8;
+    opacity:0; pointer-events:none;
+    transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  #finalMsg.show{ opacity:1; transform:translate(-50%,-50%) scale(1); }
   .cursor{
     display:inline-block;
     width:0.5em;
@@ -54,7 +111,13 @@
 <canvas id="matrix"></canvas>
 <div id="overlay">
   <div id="msg"></div>
+  <div id="choices">
+    <button id="yesBtn" class="choice-btn">Đồng ý 💙</button>
+    <button id="noBtn" class="choice-btn">Không đồng ý</button>
+  </div>
 </div>
+<div id="heartOverlay"></div>
+<div id="finalMsg">Yayyy! 🎉<br>Cảm ơn em đã đồng ý 💙</div>
 
 <script>
 // ---- Matrix rain ----
@@ -98,6 +161,12 @@ soundBtn.addEventListener('click', () => {
   if(audioCtx.state === 'suspended') audioCtx.resume();
   soundOn = !soundOn;
   soundBtn.textContent = soundOn ? '🔊 Âm thanh: Bật' : '🔈 Âm thanh: Tắt';
+  if(soundOn){
+    if(ambientTimer) clearTimeout(ambientTimer);
+    ambientLoop();
+  } else if(ambientTimer){
+    clearTimeout(ambientTimer);
+  }
 });
 
 function playClick(){
@@ -111,6 +180,40 @@ function playClick(){
   osc.connect(gain).connect(audioCtx.destination);
   osc.start();
   osc.stop(audioCtx.currentTime + 0.05);
+}
+
+// ---- Ambient background pad (generative, loops softly) ----
+const chords = [
+  [261.63, 329.63, 392.00],   // C major
+  [220.00, 277.18, 329.63],   // A minor
+  [174.61, 220.00, 261.63],   // F major
+  [196.00, 246.94, 293.66]    // G major
+];
+let chordIdx = 0;
+let ambientTimer = null;
+
+function playChord(freqs){
+  if(!soundOn || !audioCtx) return;
+  const now = audioCtx.currentTime;
+  const master = audioCtx.createGain();
+  master.gain.setValueAtTime(0, now);
+  master.gain.linearRampToValueAtTime(0.045, now + 1.5);
+  master.gain.linearRampToValueAtTime(0, now + 4.5);
+  master.connect(audioCtx.destination);
+  freqs.forEach(f => {
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = f;
+    osc.connect(master);
+    osc.start(now);
+    osc.stop(now + 4.6);
+  });
+}
+
+function ambientLoop(){
+  playChord(chords[chordIdx % chords.length]);
+  chordIdx++;
+  ambientTimer = setTimeout(ambientLoop, 4200);
 }
 
 // ---- Shake effect ----
@@ -153,11 +256,57 @@ function typeWriter(){
       setTimeout(typeWriter, 400);
     }, 1400);
   } else {
-    // last line stays on screen with blinking cursor
+    // last line stays on screen with blinking cursor, then reveal buttons
     msgEl.innerHTML = currentLine + '<span class="cursor">&nbsp;</span>';
+    setTimeout(() => {
+      document.getElementById('choices').classList.add('show');
+    }, 900);
   }
 }
 setTimeout(typeWriter, 800);
+
+// ---- Yes / No button interaction ----
+const yesBtn = document.getElementById('yesBtn');
+const noBtn = document.getElementById('noBtn');
+const heartOverlay = document.getElementById('heartOverlay');
+const finalMsg = document.getElementById('finalMsg');
+
+let yesScale = 1;
+function dodgeNo(){
+  const maxX = Math.min(120, window.innerWidth * 0.28);
+  const maxY = 50;
+  const x = (Math.random() * 2 - 1) * maxX;
+  const y = (Math.random() * 2 - 1) * maxY;
+  noBtn.style.transform = `translate(${x}px, ${y}px)`;
+  yesScale = Math.min(yesScale + 0.06, 1.6);
+  yesBtn.style.transform = `scale(${yesScale})`;
+}
+noBtn.addEventListener('mouseenter', dodgeNo);
+noBtn.addEventListener('touchstart', (e) => { e.preventDefault(); dodgeNo(); }, {passive:false});
+noBtn.addEventListener('click', (e) => { e.preventDefault(); dodgeNo(); });
+
+function spawnHearts(){
+  const symbols = ['💙','💚','✨'];
+  for(let i=0;i<36;i++){
+    setTimeout(() => {
+      const h = document.createElement('div');
+      h.className = 'heart';
+      h.textContent = symbols[i % symbols.length];
+      h.style.left = (8 + Math.random()*84) + 'vw';
+      h.style.bottom = '-30px';
+      h.style.fontSize = (20 + Math.random()*8) + 'px';
+      h.style.setProperty('--drift', (Math.random()*60 - 30) + 'px');
+      heartOverlay.appendChild(h);
+      setTimeout(() => h.remove(), 3500);
+    }, i * 70);
+  }
+}
+
+yesBtn.addEventListener('click', () => {
+  document.getElementById('choices').classList.remove('show');
+  spawnHearts();
+  finalMsg.classList.add('show');
+});
 </script>
 </body>
 </html>
