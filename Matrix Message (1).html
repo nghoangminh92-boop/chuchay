@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Matrix Message</title>
+<style>
+  :root { box-sizing: border-box; padding-top: env(safe-area-inset-top,0px); padding-bottom: env(safe-area-inset-bottom,0px); }
+  html,body{ height:100%; margin:0; background:#000; overflow:hidden; }
+  body{ display:flex; align-items:center; justify-content:center; font-family:'Courier New', monospace; }
+  canvas{ position:fixed; top:0; left:0; width:100%; height:100%; }
+  #overlay{
+    position:relative;
+    z-index:2;
+    text-align:center;
+    padding:0 24px;
+    max-width:90vw;
+    max-height:85vh;
+    overflow-y:auto;
+  }
+  #msg{
+    font-size:clamp(18px, 4.5vw, 36px);
+    color:#eaf6ff;
+    text-shadow:0 0 8px #7fd0ff, 0 0 20px #3fa9ff;
+    line-height:1.5;
+    white-space:pre-wrap;
+    font-weight:700;
+  }
+  .cursor{
+    display:inline-block;
+    width:0.5em;
+    background:#eaf6ff;
+    margin-left:4px;
+    animation: blink 0.8s steps(1) infinite;
+  }
+  @keyframes blink{ 50%{ opacity:0; } }
+  @keyframes shake{
+    0%{ transform:translate(0,0); }
+    25%{ transform:translate(-2px,1px); }
+    50%{ transform:translate(2px,-1px); }
+    75%{ transform:translate(-1px,-1px); }
+    100%{ transform:translate(0,0); }
+  }
+  .shaking{ animation: shake 0.06s linear; }
+  #soundBtn{
+    position:fixed; top:calc(16px + env(safe-area-inset-top,0px)); right:16px; z-index:3;
+    background:rgba(255,255,255,0.08); color:#eaf6ff; border:1px solid rgba(255,255,255,0.25);
+    border-radius:20px; padding:8px 14px; font-family:monospace; font-size:13px; cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<button id="soundBtn">🔊 Bật âm thanh</button>
+<canvas id="matrix"></canvas>
+<div id="overlay">
+  <div id="msg"></div>
+</div>
+
+<script>
+// ---- Matrix rain ----
+const canvas = document.getElementById('matrix');
+const ctx = canvas.getContext('2d');
+let w, h, columns, drops;
+const chars = "アイウエオカキクケコサシスセソタチツテト0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const fontSize = 16;
+
+function resize(){
+  w = canvas.width = window.innerWidth;
+  h = canvas.height = window.innerHeight;
+  columns = Math.floor(w / fontSize);
+  drops = new Array(columns).fill(1);
+}
+window.addEventListener('resize', resize);
+resize();
+
+function draw(){
+  ctx.fillStyle = 'rgba(0,0,0,0.08)';
+  ctx.fillRect(0,0,w,h);
+  ctx.fillStyle = '#3fa9ff';
+  ctx.font = fontSize + 'px monospace';
+  for(let i=0;i<drops.length;i++){
+    const text = chars[Math.floor(Math.random()*chars.length)];
+    ctx.fillText(text, i*fontSize, drops[i]*fontSize);
+    if(drops[i]*fontSize > h && Math.random() > 0.975){
+      drops[i] = 0;
+    }
+    drops[i]++;
+  }
+}
+setInterval(draw, 40);
+
+// ---- Sound (Web Audio, synthesized key click) ----
+let audioCtx = null;
+let soundOn = false;
+const soundBtn = document.getElementById('soundBtn');
+soundBtn.addEventListener('click', () => {
+  if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if(audioCtx.state === 'suspended') audioCtx.resume();
+  soundOn = !soundOn;
+  soundBtn.textContent = soundOn ? '🔊 Âm thanh: Bật' : '🔈 Âm thanh: Tắt';
+});
+
+function playClick(){
+  if(!soundOn || !audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = 'square';
+  osc.frequency.value = 700 + Math.random()*250;
+  gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+  osc.connect(gain).connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.05);
+}
+
+// ---- Shake effect ----
+const overlay = document.getElementById('overlay');
+function shake(){
+  overlay.classList.remove('shaking');
+  void overlay.offsetWidth; // restart animation
+  overlay.classList.add('shaking');
+}
+
+// ---- Typewriter message (line by line, long content) ----
+const lines = [
+  "Gởi người anh thương.",
+  "Anh muốn tiến xa hơn trong mối quan hệ này.",
+  "Để được bên em, chăm sóc em.",
+  "Đồng ý làm người yêu anh nhé..."
+];
+const msgEl = document.getElementById('msg');
+let lineIdx = 0;
+let charIdx = 0;
+
+function typeWriter(){
+  if(lineIdx >= lines.length) return;
+  const currentLine = lines[lineIdx];
+  if(charIdx <= currentLine.length){
+    const partial = currentLine.slice(0, charIdx);
+    msgEl.innerHTML = partial + '<span class="cursor">&nbsp;</span>';
+    if(charIdx < currentLine.length && currentLine[charIdx] !== ' '){
+      playClick();
+      shake();
+    }
+    charIdx++;
+    setTimeout(typeWriter, 90);
+  } else if(lineIdx < lines.length - 1){
+    // hold the finished sentence on screen, then clear and move to next
+    setTimeout(() => {
+      msgEl.innerHTML = '';
+      lineIdx++;
+      charIdx = 0;
+      setTimeout(typeWriter, 400);
+    }, 1400);
+  } else {
+    // last line stays on screen with blinking cursor
+    msgEl.innerHTML = currentLine + '<span class="cursor">&nbsp;</span>';
+  }
+}
+setTimeout(typeWriter, 800);
+</script>
+</body>
+</html>
